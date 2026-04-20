@@ -1,3 +1,42 @@
+# FORK - NEW 
+
+### Fix installation bug
+1. Fix fastchunking bug:
+```
+mkdir C:\temp
+$env:TEMP = 'C:\temp'
+$env:TMP  = 'C:\temp'
+pip install -r requirements.txt
+```
+
+2: Install [Microsoft Visual C++ 14.0 or greater](https://aka.ms/vs/stable/vs_BuildTools.exe)
+
+---
+
+### Plugins & helpers
+
+| New plugins | Description | Helpers |
+|---|---|---|
+| `APPSUPPORTPERSIST` | Detects suspicious launch-style plists, hidden helper chains, and helper-like scripts/binaries in user Application Support folders | `codesign_offline`, `persistence_common` |
+| `APPTRIGGERS` | Detects execution triggers via app startup scripts, screensaver bundles, Terminal startup commands, and custom LaunchServices URL/file handlers | `codesign_offline`, `persistence_common` |
+| `BUNDLETAMPER` | Detects app bundle tampering used for persistence: extra executables, unexpected dylib placement, proxy reexport hijack, and unsigned main binaries | `app_bundle_discovery`, `codesign_offline`, `macho_offline`, `persistence_common` |
+| `EMONDPERSIST` | Detects `emond` rule-based persistence (`/etc/emond.d/rules/`) | `persistence_common` |
+| `EVENTKITPERSIST` | Detects EventKit procedure alarms (`ZACTION=4`) that execute scripts or applications on a calendar-event schedule | `persistence_common` |
+| `EXTPERSIST` | Detects persistence via system extensions, Finder Sync extensions, Safari app/web extensions, and Chromium extension policy | `app_bundle_discovery`, `codesign_offline`, `persistence_common` |
+| `HELPERS` | Detects persistence via embedded login helpers, `SMJobBless` privileged helpers, and LaunchServices helpers inside app bundles | `app_bundle_discovery`, `codesign_offline`, `persistence_common` |
+| `INJECTION` | Detects DYLD injection via `LSEnvironment` in app bundles, `EnvironmentVariables` in launchd plists, and suspicious Mach-O load commands | `app_bundle_discovery`, `codesign_offline`, `macho_offline`, `persistence_common` |
+| `PKGSCRIPTS` | Extracts `preinstall`/`postinstall` scripts from `.pkg` files present in evidence; emits rows only when script content is available offline | `persistence_common` |
+| `PLUGINPERSIST` | Detects auto-loading plugin persistence: SecurityAgent, DirectoryServices, QuickLook, Spotlight, xbar, and editor plugins | `codesign_offline`, `persistence_common` |
+| `PROFILES` | Detects persistence via configuration profiles, MDM payloads, and managed preferences | `persistence_common` |
+| `PYSTARTUP` | Detects persistence via Python startup hooks: `sitecustomize.py`, `usercustomize.py`, and executable `.pth` files | `persistence_common` |
+| `SCHEDPERSIST` | Detects `cron`, `at`, and `periodic` scheduled-execution persistence | `persistence_common` |
+| `SHELLSTARTUP` | Detects persistence in `zsh`/`bash`/`sh` startup files and env-variable indirection | `persistence_common` |
+| `SSHPERSIST` | Detects SSH-based persistence: authorized keys, forced commands, `sshd` policy, and session `rc` | `persistence_common` |
+
+`shared_file_list` was also added in the initial fork as a helper, but it is used by updated existing plugins (`AUTOSTART`, `RECENTITEMS`) rather than by a newly added plugin.
+
+---
+
 # mac_apt - macOS (and iOS) Artifact Parsing Tool
 [![Latest version](https://img.shields.io/badge/version-v1.29.0-blue)](https://github.com/ydkhatri/mac_apt/releases/tag/v1.29.0)
 [![status](https://img.shields.io/badge/status-stable-green)]()

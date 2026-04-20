@@ -31,6 +31,17 @@ def get_scope(user):
     return 'user'
 
 
+def get_scope_from_path(path):
+    '''Best-effort scope inference based on a macOS filesystem path.'''
+    if not path:
+        return 'user'
+    if (path.startswith('/Users/') or
+            path.startswith('/private/var/root/') or
+            path.startswith('/var/root/')):
+        return 'user'
+    return 'system'
+
+
 def safe_user_label(user_name, home_dir):
     '''Return a clean user label, collapsing system pseudo-accounts to "root".'''
     if home_dir in ('/private/var/empty', '/var/empty'):

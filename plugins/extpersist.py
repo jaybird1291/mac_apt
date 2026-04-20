@@ -34,15 +34,16 @@ import json
 import logging
 import os
 import plistlib
+import re
 
 from plugins.helpers.macinfo import *
 from plugins.helpers.writer import *
-from plugins.helpers.app_bundle_discovery import list_curated_app_bundles
+from plugins.helpers.app_bundle_discovery import list_curated_app_bundle_contexts
 from plugins.helpers.codesign_offline import get_bundle_info
 from plugins.helpers.persistence_common import (
     MAIN_TABLE_COLUMNS, DETAIL_TABLE_COLUMNS,
     make_main_row, make_detail_row,
-    get_file_mtime, safe_user_label, get_scope,
+    get_file_mtime, safe_user_label, get_scope, get_scope_from_path,
 )
 
 __Plugin_Name = "EXTPERSIST"
@@ -106,13 +107,26 @@ SAFARI_WEB_EXTENSION_POINTS = (
 
 def get_bundle_scope(bundle_path):
     '''Best-effort scope for a bundle path.'''
-    if not bundle_path:
-        return 'user'
-    if (bundle_path.startswith('/Users/') or
-            bundle_path.startswith('/private/var/root/') or
-            bundle_path.startswith('/var/root/')):
-        return 'user'
-    return 'system'
+    return get_scope_from_path(bundle_path)
+
+
+def _get_owner_scope_fields(owner_context, default_path=''):
+    owner_context = owner_context or {}
+    return (
+        owner_context.get('scope', get_scope_from_path(default_path)),
+        owner_context.get('user', ''),
+        owner_context.get('uid', ''),
+    )
+
+
+def _chromium_version_sort_key(version_name):
+    key = []
+    for part in re.split(r'[._]', str(version_name or '')):
+        if part.isdigit():
+            key.append((0, int(part)))
+        else:
+            key.append((1, part.lower()))
+    return tuple(key)
 
 
 def classify_safari_extension_point(extension_point):
@@ -180,8 +194,9 @@ def _add_safari_web_manifest_details(mac_info, appex_path, detail_rows):
 
 def process_safari_extension_bundles(mac_info, owner_app_path, owner_bundle_id,
                                       owner_team_id, safari_bundle_index,
-                                      main_rows, detail_rows):
+                                      main_rows, detail_rows, owner_context=None):
     '''Find Safari app/web .appex bundles inside an app (Contents/PlugIns/).'''
+    owner_scope, owner_user, owner_uid = _get_owner_scope_fields(owner_context, owner_app_path)
     plugins_dir = owner_app_path + '/Contents/PlugIns'
     if not mac_info.IsValidFolderPath(plugins_dir):
         return
@@ -218,7 +233,9 @@ def process_safari_extension_bundles(mac_info, owner_app_path, owner_bundle_id,
         main_rows.append(make_main_row(
             mechanism='Extension Persistence',
             sub_mechanism=sub_mechanism,
-            scope=get_bundle_scope(owner_app_path),
+            scope=owner_scope,
+            user=owner_user,
+            uid=owner_uid,
             artifact_path=appex_path,
             artifact_type=artifact_type,
             target_path=cs.main_binary_path,
@@ -266,6 +283,9 @@ def process_safari_extension_bundles(mac_info, owner_app_path, owner_bundle_id,
                 'codesign_status': cs.codesign_status,
                 'sha256': cs.sha256,
                 'label_or_name': label,
+                'owner_scope': owner_scope,
+                'owner_user': owner_user,
+                'owner_uid': owner_uid,
             }
 
 
@@ -275,7 +295,8 @@ def process_safari_extension_bundles(mac_info, owner_app_path, owner_bundle_id,
 
 def _make_system_extension_owner_entry(owner_app_path, owner_bundle_id, ext_path, bundle_id,
                                        team_id, executable_name, target_path,
-                                       codesign_status, sha256, label_or_name):
+                                       codesign_status, sha256, label_or_name,
+                                       owner_scope='', owner_user='', owner_uid=''):
     return {
         'owner_app_path': owner_app_path,
         'owner_bundle_id': owner_bundle_id,
@@ -287,6 +308,9 @@ def _make_system_extension_owner_entry(owner_app_path, owner_bundle_id, ext_path
         'codesign_status': codesign_status,
         'sha256': sha256,
         'label_or_name': label_or_name,
+        'owner_scope': owner_scope,
+        'owner_user': owner_user,
+        'owner_uid': owner_uid,
     }
 
 
@@ -319,8 +343,10 @@ def _match_system_extension_owner(owner_index, bundle_id, team_id, exec_name):
 
 
 def process_system_extensions_in_bundle(mac_info, owner_app_path, owner_bundle_id,
-                                         owner_team_id, owner_index, main_rows, detail_rows):
+                                         owner_team_id, owner_index, main_rows, detail_rows,
+                                         owner_context=None):
     '''Find system extensions bundled inside an app (Contents/Library/SystemExtensions/).'''
+    owner_scope, owner_user, owner_uid = _get_owner_scope_fields(owner_context, owner_app_path)
     se_dir = owner_app_path + '/Contents/Library/SystemExtensions'
     if not mac_info.IsValidFolderPath(se_dir):
         return
@@ -351,12 +377,17 @@ def process_system_extensions_in_bundle(mac_info, owner_app_path, owner_bundle_i
             cs.codesign_status,
             cs.sha256,
             cs.bundle_id or item['name'],
+            owner_scope,
+            owner_user,
+            owner_uid,
         ))
 
         main_rows.append(make_main_row(
             mechanism='Extension Persistence',
             sub_mechanism='system_extension',
-            scope='system',
+            scope=owner_scope,
+            user=owner_user,
+            uid=owner_uid,
             artifact_path=ext_path,
             artifact_type='systemextension_bundle',
             target_path=cs.main_binary_path,
@@ -459,8 +490,9 @@ def _walk_for_sysext(mac_info, directory, owner_index, main_rows, detail_rows, d
 # ---------------------------------------------------------------------------
 
 def process_finder_sync_extensions(mac_info, owner_app_path, owner_bundle_id,
-                                    main_rows, detail_rows):
+                                    main_rows, detail_rows, owner_context=None):
     '''Find Finder Sync .appex bundles inside an app (Contents/PlugIns/).'''
+    owner_scope, owner_user, owner_uid = _get_owner_scope_fields(owner_context, owner_app_path)
     plugins_dir = owner_app_path + '/Contents/PlugIns'
     if not mac_info.IsValidFolderPath(plugins_dir):
         return
@@ -490,7 +522,9 @@ def process_finder_sync_extensions(mac_info, owner_app_path, owner_bundle_id,
         main_rows.append(make_main_row(
             mechanism='Extension Persistence',
             sub_mechanism='finder_sync',
-            scope='user',
+            scope=owner_scope,
+            user=owner_user,
+            uid=owner_uid,
             artifact_path=appex_path,
             artifact_type='findersync_appex',
             target_path=cs.main_binary_path,
@@ -622,7 +656,12 @@ def _process_chromium_extension_id(mac_info, ext_id_dir, ext_id,
         versions = mac_info.ListItemsInFolder(ext_id_dir, EntryType.FOLDERS, False)
     except Exception:
         return
-    for ver in versions:
+    sorted_versions = sorted(
+        versions,
+        key=lambda version_item: _chromium_version_sort_key(version_item.get('name', '')),
+        reverse=True,
+    )
+    for ver in sorted_versions:
         ver_dir     = ext_id_dir + '/' + ver['name']
         manifest_path = ver_dir + '/manifest.json'
         if not mac_info.IsValidFilePath(manifest_path):
@@ -1037,7 +1076,7 @@ def Plugin_Start(mac_info):
     safari_bundle_index = {}
     owner_index = {}
 
-    app_bundle_paths = list_curated_app_bundles(mac_info)
+    app_bundle_contexts = list_curated_app_bundle_contexts(mac_info)
 
     # --- Chromium managed prefs (system-wide policy) ---
     for mgd_path in CHROMIUM_MANAGED_PREFS:
@@ -1045,17 +1084,18 @@ def Plugin_Start(mac_info):
             process_chromium_managed_prefs(mac_info, mgd_path, main_rows, detail_rows)
 
     # --- App bundle scan: system extensions + Finder Sync + Safari app/web appex ---
-    for bundle_path in app_bundle_paths:
+    for bundle_context in app_bundle_contexts:
+        bundle_path = bundle_context['bundle_path']
         cs = get_bundle_info(mac_info, bundle_path)
         process_system_extensions_in_bundle(
             mac_info, bundle_path, cs.bundle_id, cs.team_id,
-            owner_index, main_rows, detail_rows)
+            owner_index, main_rows, detail_rows, bundle_context)
         process_finder_sync_extensions(
             mac_info, bundle_path, cs.bundle_id,
-            main_rows, detail_rows)
+            main_rows, detail_rows, bundle_context)
         process_safari_extension_bundles(
             mac_info, bundle_path, cs.bundle_id, cs.team_id,
-            safari_bundle_index, main_rows, detail_rows)
+            safari_bundle_index, main_rows, detail_rows, bundle_context)
 
     # --- Activated system extensions (global DB) ---
     process_activated_system_extensions(mac_info, owner_index, main_rows, detail_rows)

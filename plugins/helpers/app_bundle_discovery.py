@@ -27,7 +27,12 @@ SYSTEM_APP_ROOTS = (
 
 def _iter_curated_roots(mac_info):
     for root in SYSTEM_APP_ROOTS:
-        yield root
+        yield {
+            'root': root,
+            'scope': 'system',
+            'user': '',
+            'uid': '',
+        }
 
     processed_homes = set()
     for user in mac_info.users:
@@ -37,17 +42,29 @@ def _iter_curated_roots(mac_info):
         if user.home_dir in processed_homes:
             continue
         processed_homes.add(user.home_dir)
-        yield user.home_dir + '/Applications'
-        yield user.home_dir + '/Desktop'
+        user_context = {
+            'scope': 'user',
+            'user': user_name,
+            'uid': str(user.UID) if user.UID not in ('', None) else '',
+        }
+        yield {
+            'root': user.home_dir + '/Applications',
+            **user_context,
+        }
+        yield {
+            'root': user.home_dir + '/Desktop',
+            **user_context,
+        }
 
 
-def list_curated_app_bundles(mac_info, max_depth=2):
-    '''Return shallow-discovered .app bundle paths from curated common roots.'''
-    bundle_paths = []
+def list_curated_app_bundle_contexts(mac_info, max_depth=2):
+    '''Return shallow-discovered .app bundle paths with owner attribution context.'''
+    bundle_contexts = []
     seen_bundles = set()
     seen_dirs = set()
 
-    for root in _iter_curated_roots(mac_info):
+    for root_info in _iter_curated_roots(mac_info):
+        root = root_info['root']
         if root in seen_dirs or not mac_info.IsValidFolderPath(root):
             continue
         queue = deque([(root, 0)])
@@ -68,7 +85,12 @@ def list_curated_app_bundles(mac_info, max_depth=2):
                 if name.endswith('.app'):
                     if item_path not in seen_bundles:
                         seen_bundles.add(item_path)
-                        bundle_paths.append(item_path)
+                        bundle_contexts.append({
+                            'bundle_path': item_path,
+                            'scope': root_info['scope'],
+                            'user': root_info['user'],
+                            'uid': root_info['uid'],
+                        })
                     continue
                 if depth >= max_depth:
                     continue
@@ -76,4 +98,12 @@ def list_curated_app_bundles(mac_info, max_depth=2):
                     seen_dirs.add(item_path)
                     queue.append((item_path, depth + 1))
 
-    return bundle_paths
+    return bundle_contexts
+
+
+def list_curated_app_bundles(mac_info, max_depth=2):
+    '''Return shallow-discovered .app bundle paths from curated common roots.'''
+    return [
+        bundle_context['bundle_path']
+        for bundle_context in list_curated_app_bundle_contexts(mac_info, max_depth)
+    ]

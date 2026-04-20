@@ -38,6 +38,8 @@ import hashlib
 import logging
 import struct
 
+from plugins.helpers.macho_offline import parse_macho_from_mac_info
+
 log = logging.getLogger('MAIN.HELPERS.CODESIGN_OFFLINE')
 
 # ---------------------------------------------------------------------------
@@ -314,6 +316,26 @@ def get_bundle_info(mac_info, bundle_path):
     return info
 
 
+def _classify_binary_codesign_status(mac_info, binary_path, team_id, is_adhoc=False):
+    '''Return signed/adhoc/unsigned/unknown for a standalone Mach-O binary.'''
+    if is_adhoc:
+        return 'adhoc'
+    if team_id:
+        return 'signed'
+
+    try:
+        macho = parse_macho_from_mac_info(mac_info, binary_path)
+    except Exception:
+        log.debug('Mach-O parse failed for {}'.format(binary_path))
+        return 'unknown'
+
+    if macho.parse_error or not macho.arches:
+        return 'unknown'
+    if macho.has_code_signature:
+        return 'signed'
+    return 'unsigned'
+
+
 def get_binary_codesign_info(mac_info, binary_path):
     '''Offline codesign enrichment for a standalone Mach-O binary (not a bundle).
     Returns a BundleInfo instance (bundle_id will be empty).'''
@@ -321,12 +343,8 @@ def get_binary_codesign_info(mac_info, binary_path):
     info.main_binary_path = binary_path
     info.team_id, is_adhoc = get_team_id_from_binary(mac_info, binary_path)
     info.sha256  = compute_sha256(mac_info, binary_path)
-
-    if is_adhoc:
-        info.codesign_status = 'adhoc'
-    elif info.team_id:
-        info.codesign_status = 'signed'
-    else:
-        info.codesign_status = 'unknown'
+    info.codesign_status = _classify_binary_codesign_status(
+        mac_info, binary_path, info.team_id, is_adhoc
+    )
 
     return info

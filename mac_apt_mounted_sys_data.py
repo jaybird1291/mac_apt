@@ -32,9 +32,18 @@ from plugins.helpers.writer import *
 from plugins.helpers.disk_report import *
 from plugin import *
 from version import __VERSION
+import collections
 
 __PROGRAMNAME = "macOS Artifact Parsing Tool - SYS DATA Mounted mode"
 __EMAIL = "yogesh@swiftforensics.com"
+
+PARTIAL_ACQUISITION_SKIP_PLUGINS = frozenset((
+    'BASICINFO',
+    'FSEVENTS',
+    'NOTIFICATIONS',
+    'QUICKLOOK',
+    'UNIFIEDLOGEXPORT',
+))
 
 
 def IsItemPresentInList(collection, item):
@@ -47,6 +56,8 @@ def IsItemPresentInList(collection, item):
 
 def FindMacOsFiles(mac_info):
     if mac_info.IsValidFilePath('/System/Library/CoreServices/SystemVersion.plist'):
+        mac_info.is_partial_macos_acquisition = False
+        mac_info.partial_macos_markers = []
         if mac_info.IsValidFilePath("/System/Library/Kernels/kernel") or \
             mac_info.IsValidFilePath("/mach_kernel"):
             log.info("Found valid OSX/macOS kernel")
@@ -58,11 +69,16 @@ def FindMacOsFiles(mac_info):
     else:
         is_partial, matched_markers = macinfo.CheckForPartialMacOsAcquisition(mac_info)
         if is_partial:
+            mac_info.is_partial_macos_acquisition = True
+            mac_info.partial_macos_markers = matched_markers
             log.warning("Could not find /System/Library/CoreServices/SystemVersion.plist. "
-                        "Treating image as a partial macOS acquisition based on data-volume markers: %s",
+                        "Treating image as a partial macOS acquisition based on data-volume markers: %s. "
+                        "System-metadata-dependent plugins will be skipped.",
                         ', '.join(matched_markers))
             mac_info._GetUserInfo()
             return True
+        mac_info.is_partial_macos_acquisition = False
+        mac_info.partial_macos_markers = []
         log.info("Could not find OSX/macOS installation!")
     return False
 
@@ -242,6 +258,15 @@ except Exception as ex:
 if found_macos:
     for plugin in plugins:
         if IsItemPresentInList(plugins_to_run, plugin.__Plugin_Name):
+            if (mac_info.is_partial_macos_acquisition and
+                    plugin.__Plugin_Name in PARTIAL_ACQUISITION_SKIP_PLUGINS):
+                log.warning(
+                    "Skipping plugin %s because this is a partial macOS acquisition "
+                    "without SystemVersion.plist. Matched markers: %s",
+                    plugin.__Plugin_Name,
+                    ', '.join(mac_info.partial_macos_markers),
+                )
+                continue
             log.info("-"*50)
             log.info("Running plugin " + plugin.__Plugin_Name)
             try:

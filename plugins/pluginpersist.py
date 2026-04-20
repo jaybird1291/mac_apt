@@ -21,7 +21,7 @@
                          Loaded by Spotlight when indexing files.
      xbar              : ~/Library/Application Support/xbar/plugins
                          Auto-executed by xbar (menu bar app) on startup.
-     editor_plugin     : ~/.vim/plugin  ~/.vim/autoload  ~/.config/nvim/plugin
+     editor_plugin     : ~/.vim/plugin  ~/.vim/after/plugin  ~/.config/nvim/plugin
                          Auto-sourced by Vim/NeoVim at startup.
 
    Output tables:
@@ -79,13 +79,10 @@ USER_PLUGIN_DIRS = [
     ('/Library/Application Support/xbar/plugins',            'xbar',               'script'),
     ('/Library/iTunes/iTunes Plug-ins',                      'app_plugin',         'any'),
     ('/.vim/plugin',                                         'editor_plugin',      'script'),
-    ('/.vim/autoload',                                       'editor_plugin',      'script'),
     ('/.vim/after/plugin',                                   'editor_plugin',      'script'),
     ('/.config/nvim/plugin',                                 'editor_plugin',      'script'),
-    ('/.config/nvim/autoload',                               'editor_plugin',      'script'),
     ('/.config/nvim/after/plugin',                           'editor_plugin',      'script'),
     ('/.local/share/nvim/site/plugin',                       'editor_plugin',      'script'),
-    ('/.local/share/nvim/site/autoload',                     'editor_plugin',      'script'),
     ('/Library/Application Support/Sublime Text 3/Packages', 'editor_plugin',      'any'),
     ('/Library/Application Support/Sublime Text/Packages',   'editor_plugin',      'any'),
 ]
@@ -102,6 +99,21 @@ BUNDLE_EXTS = {'.plugin', '.bundle', '.qlgenerator', '.mdimporter',
 def _is_bundle(name):
     _, ext = os.path.splitext(name)
     return ext.lower() in BUNDLE_EXTS or name.endswith('.app')
+
+
+def _is_editor_autoload_path(path):
+    lower_path = str(path or '').lower().replace('\\', '/')
+    autoload_markers = (
+        '/.vim/autoload/',
+        '/.config/nvim/autoload/',
+        '/.local/share/nvim/site/autoload/',
+    )
+    return (
+        any(marker in lower_path for marker in autoload_markers) or
+        lower_path.endswith('/.vim/autoload') or
+        lower_path.endswith('/.config/nvim/autoload') or
+        lower_path.endswith('/.local/share/nvim/site/autoload')
+    )
 
 
 def process_plugin_dir(mac_info, directory, sub_mechanism, item_type,
@@ -278,6 +290,9 @@ def Plugin_Start_Standalone(input_files_list, output_params):
         log.debug('Input path: ' + input_path)
         name = os.path.basename(input_path)
         lower_path = input_path.lower()
+        if _is_editor_autoload_path(input_path):
+            log.info('Skipping {} because Vim/Neovim autoload paths are not startup persistence'.format(input_path))
+            continue
         sub_mechanism = 'unknown'
         if '.qlgenerator' in lower_path or '/quicklook/' in lower_path:
             sub_mechanism = 'quicklook'

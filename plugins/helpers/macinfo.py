@@ -375,6 +375,8 @@ class MacInfo:
         self.os_version_extra = '' # Since macOS 13, for Rapid Security Response patches
         self.os_build = ''
         self.os_friendly_name = 'No name yet!'
+        self.is_partial_macos_acquisition = False
+        self.partial_macos_markers = []
         self.users = []
         self.hfs_native = NativeHfsParser()
         self.is_apfs = False

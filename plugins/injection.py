@@ -44,7 +44,7 @@ import os
 
 from plugins.helpers.macinfo import *
 from plugins.helpers.writer import *
-from plugins.helpers.app_bundle_discovery import list_curated_app_bundles
+from plugins.helpers.app_bundle_discovery import list_curated_app_bundle_contexts
 from plugins.helpers.codesign_offline import get_bundle_info
 from plugins.helpers.macho_offline import (
     parse_macho_from_mac_info, classify_dylib_path, DYLIB_CMD_MAP,
@@ -53,7 +53,7 @@ from plugins.helpers.macho_offline import (
 from plugins.helpers.persistence_common import (
     MAIN_TABLE_COLUMNS, DETAIL_TABLE_COLUMNS,
     make_main_row, make_detail_row,
-    get_file_mtime, safe_user_label, get_scope,
+    get_file_mtime, safe_user_label, get_scope, get_scope_from_path,
 )
 
 __Plugin_Name = "INJECTION"
@@ -103,7 +103,8 @@ DYLD_INJECTION_VARS = {
 # ---------------------------------------------------------------------------
 
 def scan_app_for_lsenvironment(mac_info, bundle_path, owner_bundle_id,
-                                main_rows, detail_rows):
+                                main_rows, detail_rows,
+                                owner_scope='', owner_user='', owner_uid=''):
     '''Check an app bundle's Info.plist for LSEnvironment containing DYLD vars.'''
     info_plist_path = bundle_path + '/Contents/Info.plist'
     if not mac_info.IsValidFilePath(info_plist_path):
@@ -130,7 +131,9 @@ def scan_app_for_lsenvironment(mac_info, bundle_path, owner_bundle_id,
         main_rows.append(make_main_row(
             mechanism='Injection Persistence',
             sub_mechanism=sub_mech,
-            scope='user',
+            scope=owner_scope or get_scope_from_path(bundle_path),
+            user=owner_user,
+            uid=owner_uid,
             artifact_path=info_plist_path,
             artifact_type='info_plist',
             target_path=str(var_value),
@@ -227,13 +230,15 @@ def scan_launchd_dir(mac_info, directory, user_name, uid, main_rows, detail_rows
 # ---------------------------------------------------------------------------
 
 def scan_binary_for_injection(mac_info, binary_path, owner_app_path,
-                               owner_bundle_id, main_rows, detail_rows):
+                               owner_bundle_id, main_rows, detail_rows,
+                               owner_scope='', owner_user='', owner_uid=''):
     '''Parse a Mach-O binary and flag suspicious/unusual dylib load commands.'''
     macho = parse_macho_from_mac_info(mac_info, binary_path)
     if macho.parse_error or not macho.arches:
         return
 
     artifact_mtime = get_file_mtime(mac_info, binary_path)
+    scope = owner_scope or get_scope_from_path(owner_app_path or binary_path)
 
     for dylib_ref in macho.dylibs:
         classification = classify_dylib_path(dylib_ref.path)
@@ -245,7 +250,9 @@ def scan_binary_for_injection(mac_info, binary_path, owner_app_path,
         main_rows.append(make_main_row(
             mechanism='Injection Persistence',
             sub_mechanism=sub_mech,
-            scope='system' if not owner_app_path else 'user',
+            scope=scope,
+            user=owner_user,
+            uid=owner_uid,
             artifact_path=binary_path,
             artifact_type='macho_binary',
             target_path=dylib_ref.path,
@@ -313,16 +320,19 @@ def Plugin_Start(mac_info):
             user_name, user.UID,
             main_rows, detail_rows)
 
-    for bundle_path in list_curated_app_bundles(mac_info):
+    for bundle_context in list_curated_app_bundle_contexts(mac_info):
+        bundle_path = bundle_context['bundle_path']
         cs = get_bundle_info(mac_info, bundle_path)
         scan_app_for_lsenvironment(
-            mac_info, bundle_path, cs.bundle_id, main_rows, detail_rows)
+            mac_info, bundle_path, cs.bundle_id, main_rows, detail_rows,
+            bundle_context['scope'], bundle_context['user'], bundle_context['uid'])
 
         if cs.main_binary_path:
             scan_binary_for_injection(
                 mac_info, cs.main_binary_path,
                 bundle_path, cs.bundle_id,
-                main_rows, detail_rows)
+                main_rows, detail_rows,
+                bundle_context['scope'], bundle_context['user'], bundle_context['uid'])
 
     # --- /Library/PrivilegedHelperTools: Mach-O load commands ---
     priv_dir = '/Library/PrivilegedHelperTools'

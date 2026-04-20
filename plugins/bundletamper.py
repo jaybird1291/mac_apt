@@ -47,7 +47,7 @@ import os
 
 from plugins.helpers.macinfo import *
 from plugins.helpers.writer import *
-from plugins.helpers.app_bundle_discovery import list_curated_app_bundles
+from plugins.helpers.app_bundle_discovery import list_curated_app_bundle_contexts
 from plugins.helpers.codesign_offline import get_bundle_info, get_binary_codesign_info
 from plugins.helpers.macho_offline import (
     parse_macho_from_mac_info, classify_dylib_path,
@@ -106,7 +106,8 @@ def _list_folders_in_dir(mac_info, directory):
 
 
 def check_extra_binaries(mac_info, bundle_path, main_binary_name,
-                          owner_bundle_id, main_rows, detail_rows):
+                          owner_bundle_id, owner_scope, owner_user, owner_uid,
+                          main_rows, detail_rows):
     '''Flag executables in Contents/MacOS/ beyond the declared main binary.
     Also flags executables placed directly in Contents/ (unusual).'''
     macos_dir   = bundle_path + '/Contents/MacOS'
@@ -139,7 +140,9 @@ def check_extra_binaries(mac_info, bundle_path, main_binary_name,
             main_rows.append(make_main_row(
                 mechanism='Bundle Tamper Persistence',
                 sub_mechanism='extra_binary',
-                scope='system',
+                scope=owner_scope,
+                user=owner_user,
+                uid=owner_uid,
                 artifact_path=item_path,
                 artifact_type='extra_executable',
                 target_path=item_path,
@@ -163,6 +166,7 @@ def check_extra_binaries(mac_info, bundle_path, main_binary_name,
 
 
 def check_dylib_unexpected_location(mac_info, bundle_path, owner_bundle_id,
+                                     owner_scope, owner_user, owner_uid,
                                      main_rows, detail_rows):
     '''Flag .dylib files placed in Contents/ or Contents/MacOS/ (not Frameworks/).'''
     for search_dir in (bundle_path + '/Contents', bundle_path + '/Contents/MacOS'):
@@ -179,7 +183,9 @@ def check_dylib_unexpected_location(mac_info, bundle_path, owner_bundle_id,
             main_rows.append(make_main_row(
                 mechanism='Bundle Tamper Persistence',
                 sub_mechanism='dylib_unexpected_location',
-                scope='system',
+                scope=owner_scope,
+                user=owner_user,
+                uid=owner_uid,
                 artifact_path=item_path,
                 artifact_type='dylib_unexpected_location',
                 target_path=item_path,
@@ -203,6 +209,7 @@ def check_dylib_unexpected_location(mac_info, bundle_path, owner_bundle_id,
 
 
 def check_reexport_proxy_in_frameworks(mac_info, bundle_path, owner_bundle_id,
+                                        owner_scope, owner_user, owner_uid,
                                         main_rows, detail_rows):
     '''Scan Contents/Frameworks/ for .dylib files with LC_REEXPORT_DYLIB
     pointing to suspicious/unusual paths (proxy hijack pattern).'''
@@ -231,7 +238,9 @@ def check_reexport_proxy_in_frameworks(mac_info, bundle_path, owner_bundle_id,
             main_rows.append(make_main_row(
                 mechanism='Bundle Tamper Persistence',
                 sub_mechanism='reexport_proxy_bundle',
-                scope='system',
+                scope=owner_scope,
+                user=owner_user,
+                uid=owner_uid,
                 artifact_path=item_path,
                 artifact_type='proxy_dylib_in_frameworks',
                 target_path=dylib_ref.path,
@@ -255,6 +264,7 @@ def check_reexport_proxy_in_frameworks(mac_info, bundle_path, owner_bundle_id,
 
 
 def check_unsigned_main(mac_info, bundle_path, main_binary_path, bundle_id,
+                         owner_scope, owner_user, owner_uid,
                          main_rows, detail_rows):
     '''Flag main binary that lacks a code signature when the bundle has a
     bundle ID (suggesting it was expected to be signed).'''
@@ -272,7 +282,9 @@ def check_unsigned_main(mac_info, bundle_path, main_binary_path, bundle_id,
     main_rows.append(make_main_row(
         mechanism='Bundle Tamper Persistence',
         sub_mechanism='unsigned_main',
-        scope='system',
+        scope=owner_scope,
+        user=owner_user,
+        uid=owner_uid,
         artifact_path=main_binary_path,
         artifact_type='unsigned_main_binary',
         target_path=main_binary_path,
@@ -293,21 +305,29 @@ def check_unsigned_main(mac_info, bundle_path, main_binary_path, bundle_id,
     ))
 
 
-def process_app_bundle(mac_info, bundle_path, main_rows, detail_rows):
+def process_app_bundle(mac_info, bundle_context, main_rows, detail_rows):
     '''Run all BUNDLETAMPER checks on a single .app bundle.'''
+    bundle_path = bundle_context['bundle_path']
+    owner_scope = bundle_context['scope']
+    owner_user = bundle_context['user']
+    owner_uid = bundle_context['uid']
     cs = get_bundle_info(mac_info, bundle_path)
 
     main_binary_name = (os.path.basename(cs.main_binary_path)
                         if cs.main_binary_path else '')
 
     check_extra_binaries(mac_info, bundle_path, main_binary_name,
-                          cs.bundle_id, main_rows, detail_rows)
+                          cs.bundle_id, owner_scope, owner_user, owner_uid,
+                          main_rows, detail_rows)
     check_dylib_unexpected_location(mac_info, bundle_path,
-                                     cs.bundle_id, main_rows, detail_rows)
+                                     cs.bundle_id, owner_scope, owner_user, owner_uid,
+                                     main_rows, detail_rows)
     check_reexport_proxy_in_frameworks(mac_info, bundle_path,
-                                        cs.bundle_id, main_rows, detail_rows)
+                                        cs.bundle_id, owner_scope, owner_user, owner_uid,
+                                        main_rows, detail_rows)
     check_unsigned_main(mac_info, bundle_path, cs.main_binary_path,
-                         cs.bundle_id, main_rows, detail_rows)
+                         cs.bundle_id, owner_scope, owner_user, owner_uid,
+                         main_rows, detail_rows)
 
 
 # ---------------------------------------------------------------------------
@@ -337,8 +357,8 @@ def write_output(main_rows, detail_rows, output_params):
 def Plugin_Start(mac_info):
     main_rows   = []
     detail_rows = []
-    for bundle_path in list_curated_app_bundles(mac_info):
-        process_app_bundle(mac_info, bundle_path, main_rows, detail_rows)
+    for bundle_context in list_curated_app_bundle_contexts(mac_info):
+        process_app_bundle(mac_info, bundle_context, main_rows, detail_rows)
 
     if main_rows or detail_rows:
         write_output(main_rows, detail_rows, mac_info.output_params)

@@ -41,12 +41,12 @@ import os
 
 from plugins.helpers.macinfo import *
 from plugins.helpers.writer import *
-from plugins.helpers.app_bundle_discovery import list_curated_app_bundles
+from plugins.helpers.app_bundle_discovery import list_curated_app_bundle_contexts
 from plugins.helpers.codesign_offline import get_bundle_info, get_binary_codesign_info
 from plugins.helpers.persistence_common import (
     MAIN_TABLE_COLUMNS, DETAIL_TABLE_COLUMNS,
     make_main_row, make_detail_row,
-    get_file_mtime, safe_user_label, get_scope,
+    get_file_mtime, safe_user_label, get_scope, get_scope_from_path,
 )
 
 __Plugin_Name = "HELPERS"
@@ -111,7 +111,8 @@ def build_priv_helper_owner_map(mac_info, bundle_paths):
 # ---------------------------------------------------------------------------
 
 def process_embedded_login_helpers(mac_info, owner_app_path, owner_bundle_id,
-                                    owner_team_id, main_rows, detail_rows):
+                                    owner_team_id, main_rows, detail_rows,
+                                    owner_scope='', owner_user='', owner_uid=''):
     '''Enumerate <App>.app/Contents/Library/LoginItems/ and emit one row per helper.'''
     login_items_dir = owner_app_path + '/Contents/Library/LoginItems'
     if not mac_info.IsValidFolderPath(login_items_dir):
@@ -140,7 +141,9 @@ def process_embedded_login_helpers(mac_info, owner_app_path, owner_bundle_id,
         main_rows.append(make_main_row(
             mechanism='Helper Persistence',
             sub_mechanism='embedded_login_helper',
-            scope='user',
+            scope=owner_scope or get_scope_from_path(owner_app_path),
+            user=owner_user,
+            uid=owner_uid,
             artifact_path=helper_path,
             artifact_type='login_item_bundle',
             target_path=cs.main_binary_path,
@@ -288,7 +291,8 @@ def process_privileged_helper_tools(mac_info, owner_map, main_rows, detail_rows)
 # ---------------------------------------------------------------------------
 
 def process_launchservices_helpers(mac_info, owner_app_path, owner_bundle_id,
-                                    main_rows, detail_rows):
+                                    main_rows, detail_rows,
+                                    owner_scope='', owner_user='', owner_uid=''):
     '''Enumerate <App>.app/Contents/Library/LaunchServices/ for helper executables.'''
     ls_dir = owner_app_path + '/Contents/Library/LaunchServices'
     if not mac_info.IsValidFolderPath(ls_dir):
@@ -308,7 +312,9 @@ def process_launchservices_helpers(mac_info, owner_app_path, owner_bundle_id,
         main_rows.append(make_main_row(
             mechanism='Helper Persistence',
             sub_mechanism='launchservices_helper',
-            scope='system',
+            scope=owner_scope or get_scope_from_path(owner_app_path),
+            user=owner_user,
+            uid=owner_uid,
             artifact_path=helper_path,
             artifact_type='launchservices_helper_binary',
             target_path=helper_path,
@@ -359,7 +365,8 @@ def Plugin_Start(mac_info):
     '''Main entry point for plugin'''
     main_rows   = []
     detail_rows = []
-    app_bundle_paths = list_curated_app_bundles(mac_info)
+    app_bundle_contexts = list_curated_app_bundle_contexts(mac_info)
+    app_bundle_paths = [entry['bundle_path'] for entry in app_bundle_contexts]
 
     # Phase 1: Build privileged-helper → owner-app correlation table
     log.debug('Building privileged helper owner map...')
@@ -367,18 +374,21 @@ def Plugin_Start(mac_info):
     log.debug('Found {} SMPrivilegedExecutables entries'.format(len(owner_map)))
 
     # Phase 2 & 4: Scan app bundles for embedded helpers and LS helpers
-    for bundle_path in app_bundle_paths:
+    for bundle_context in app_bundle_contexts:
+        bundle_path = bundle_context['bundle_path']
         cs = get_bundle_info(mac_info, bundle_path)
         owner_bundle_id = cs.bundle_id
         owner_team_id   = cs.team_id
 
         process_embedded_login_helpers(
             mac_info, bundle_path, owner_bundle_id, owner_team_id,
-            main_rows, detail_rows)
+            main_rows, detail_rows,
+            bundle_context['scope'], bundle_context['user'], bundle_context['uid'])
 
         process_launchservices_helpers(
             mac_info, bundle_path, owner_bundle_id,
-            main_rows, detail_rows)
+            main_rows, detail_rows,
+            bundle_context['scope'], bundle_context['user'], bundle_context['uid'])
 
     # Phase 3: Privileged helper tools
     process_privileged_helper_tools(mac_info, owner_map, main_rows, detail_rows)
