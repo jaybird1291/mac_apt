@@ -189,10 +189,11 @@ def _scan_bytes_for_team_id(data):
                 offset = idx + 4
                 continue
 
+            # Apple Team IDs are always exactly 10 upper-case alphanumeric
+            # characters.  Only accept strings that meet this requirement;
+            # the previous secondary isalnum() check (without isupper())
+            # incorrectly accepted lowercase strings and has been removed.
             if candidate.isalnum() and candidate.isupper():
-                return candidate, found_is_adhoc
-            # Some Team IDs mix upper and digit only - accept alphanumeric
-            if candidate.isalnum():
                 return candidate, found_is_adhoc
 
         except struct.error:

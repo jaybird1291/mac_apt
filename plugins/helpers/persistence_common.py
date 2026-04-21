@@ -32,12 +32,17 @@ def get_scope(user):
 
 
 def get_scope_from_path(path):
-    '''Best-effort scope inference based on a macOS filesystem path.'''
+    '''Best-effort scope inference based on a macOS filesystem path.
+
+    Only regular user home directories (/Users/<name>/) are classified as
+    "user" scope.  Root's home directories (/private/var/root/, /var/root/)
+    are system scope — consistent with get_scope("root") == "system".
+    Everything else (system libraries, /Library, /etc, /private, …) is
+    "system".
+    '''
     if not path:
         return 'user'
-    if (path.startswith('/Users/') or
-            path.startswith('/private/var/root/') or
-            path.startswith('/var/root/')):
+    if path.startswith('/Users/'):
         return 'user'
     return 'system'
 

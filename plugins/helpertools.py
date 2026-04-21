@@ -268,7 +268,7 @@ def process_privileged_helper_tools(mac_info, owner_map, main_rows, detail_rows)
                 evidence_type='owner_helper_relation',
                 key_or_line='OwnerApp',
                 value=owner_app_path,
-                resolved_path=owner_bundle_id,
+                resolved_path=owner_app_path,
             ))
         if orphaned:
             detail_rows.append(make_detail_row(

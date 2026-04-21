@@ -81,6 +81,43 @@ log = logging.getLogger('MAIN.' + __Plugin_Name)
 
 SYSTEM_APP_DIRS = ['/Applications', '/Library/Applications']
 
+# ---------------------------------------------------------------------------
+# Mach-O quick-check helpers
+# ---------------------------------------------------------------------------
+
+# First-4-bytes magic values that identify Mach-O / fat binaries
+_MACHO_MAGIC_BYTES = frozenset({
+    b'\xCE\xFA\xED\xFE',  # 32-bit LE on disk (MH_CIGAM_32 under big-endian read)
+    b'\xCF\xFA\xED\xFE',  # 64-bit LE on disk (MH_CIGAM_64)
+    b'\xFE\xED\xFA\xCE',  # 32-bit BE on disk (MH_MAGIC_32)
+    b'\xFE\xED\xFA\xCF',  # 64-bit BE on disk (MH_MAGIC_64)
+    b'\xCA\xFE\xBA\xBE',  # fat / universal binary
+    b'\xCA\xFE\xBA\xBF',  # fat64 binary
+})
+
+# File names that legitimately appear in Contents/ of well-formed bundles and
+# are never executable binaries.  Pre-empts false positives for extension-less
+# files in the Contents/ scan.
+_CONTENTS_KNOWN_NON_EXEC = frozenset({
+    'PkgInfo',
+    'embedded.provisionprofile',
+})
+
+
+def _is_macho(mac_info, path):
+    '''Return True if the file's first 4 bytes match a known Mach-O magic.
+    Reads only 4 bytes; returns False on any I/O or parse error.'''
+    try:
+        f = mac_info.Open(path)
+        if f is None:
+            return False
+        header = f.read(4)
+        if isinstance(header, str):
+            header = header.encode('latin-1')
+        return header in _MACHO_MAGIC_BYTES
+    except Exception:
+        return False
+
 
 # ---------------------------------------------------------------------------
 # Per-bundle checks
@@ -106,11 +143,27 @@ def _list_folders_in_dir(mac_info, directory):
 
 
 def check_extra_binaries(mac_info, bundle_path, main_binary_name,
-                          owner_bundle_id, owner_scope, owner_user, owner_uid,
+                          owner_bundle_id, owner_team_id,
+                          owner_scope, owner_user, owner_uid,
                           main_rows, detail_rows):
     '''Flag executables in Contents/MacOS/ beyond the declared main binary.
-    Also flags executables placed directly in Contents/ (unusual).'''
-    macos_dir   = bundle_path + '/Contents/MacOS'
+    Also flags executables placed directly in Contents/ (unusual).
+
+    Suppression rules to reduce false positives:
+      Contents/MacOS/
+        - Only Mach-O files are considered (eliminates data/resource files).
+        - Extra binaries that share the parent bundle's Team ID are suppressed;
+          these are co-signed components (e.g. Electron / WebKit helpers,
+          crashreporter) distributed by the same developer.  Binaries that are
+          unsigned or carry a different Team ID are still flagged.
+      Contents/
+        - Well-known non-executable names (PkgInfo, embedded.provisionprofile)
+          are always skipped.
+        - Only files with no extension or common script extensions are
+          considered.  Extension-less files additionally require Mach-O magic
+          to avoid flagging legitimate data files.
+    '''
+    macos_dir    = bundle_path + '/Contents/MacOS'
     contents_dir = bundle_path + '/Contents'
 
     for search_dir, label in ((macos_dir, 'Contents/MacOS'),
@@ -121,19 +174,33 @@ def check_extra_binaries(mac_info, bundle_path, main_binary_name,
                 continue
             if name.endswith('.dylib') or name.endswith('.framework'):
                 continue
-            # In Contents/, only flag executables (not plists, resources, etc.)
-            if search_dir == contents_dir:
-                # Heuristic: files without extension or .sh/.py/.rb/.pl/.lua
-                ext = os.path.splitext(name)[1].lower()
-                if ext not in ('', '.sh', '.py', '.rb', '.pl', '.lua', '.zsh',
-                               '.bash', '.fish', '.js'):
-                    continue
             # Skip the declared main binary when in MacOS/
             if search_dir == macos_dir and name == main_binary_name:
                 continue
 
             item_path = search_dir + '/' + name
-            cs = get_binary_codesign_info(mac_info, item_path)
+
+            if search_dir == macos_dir:
+                # Require Mach-O magic — eliminates resource/data files
+                if not _is_macho(mac_info, item_path):
+                    continue
+                cs = get_binary_codesign_info(mac_info, item_path)
+                # Co-signed component (same Team ID as owner) → legitimate helper
+                if owner_team_id and cs.team_id and owner_team_id == cs.team_id:
+                    continue
+            else:
+                # Contents/ — skip known-non-exec file names
+                if name in _CONTENTS_KNOWN_NON_EXEC:
+                    continue
+                ext = os.path.splitext(name)[1].lower()
+                if ext not in ('', '.sh', '.py', '.rb', '.pl', '.lua', '.zsh',
+                               '.bash', '.fish', '.js'):
+                    continue
+                # Extension-less files: require Mach-O magic to confirm binary
+                if ext == '' and not _is_macho(mac_info, item_path):
+                    continue
+                cs = get_binary_codesign_info(mac_info, item_path)
+
             artifact_mtime = get_file_mtime(mac_info, item_path)
             mac_info.ExportFile(item_path, __Plugin_Name, 'extra_binary_', False)
 
@@ -317,7 +384,8 @@ def process_app_bundle(mac_info, bundle_context, main_rows, detail_rows):
                         if cs.main_binary_path else '')
 
     check_extra_binaries(mac_info, bundle_path, main_binary_name,
-                          cs.bundle_id, owner_scope, owner_user, owner_uid,
+                          cs.bundle_id, cs.team_id,
+                          owner_scope, owner_user, owner_uid,
                           main_rows, detail_rows)
     check_dylib_unexpected_location(mac_info, bundle_path,
                                      cs.bundle_id, owner_scope, owner_user, owner_uid,
@@ -390,18 +458,27 @@ def Plugin_Start_Standalone(input_files_list, output_params):
                 if fname.startswith('.') or fname == main_binary_name:
                     continue
                 fpath = macos_dir + '/' + fname
-                if _os.path.isfile(fpath):
-                    main_rows.append(make_main_row(
-                        mechanism='Bundle Tamper Persistence',
-                        sub_mechanism='extra_binary',
-                        artifact_path=fpath,
-                        artifact_type='extra_executable',
-                        target_path=fpath,
-                        trigger='host app execution / code injection',
-                        owner_app_path=input_path,
-                        label_or_name=fname,
-                        source=fpath,
-                    ))
+                if not _os.path.isfile(fpath):
+                    continue
+                # Require Mach-O magic — mirrors the online-mode suppression
+                try:
+                    with open(fpath, 'rb') as _hf:
+                        _header = _hf.read(4)
+                except OSError:
+                    continue
+                if _header not in _MACHO_MAGIC_BYTES:
+                    continue
+                main_rows.append(make_main_row(
+                    mechanism='Bundle Tamper Persistence',
+                    sub_mechanism='extra_binary',
+                    artifact_path=fpath,
+                    artifact_type='extra_executable',
+                    target_path=fpath,
+                    trigger='host app execution / code injection',
+                    owner_app_path=input_path,
+                    label_or_name=fname,
+                    source=fpath,
+                ))
 
         # Reexport proxies in Frameworks/
         if _os.path.isdir(fw_dir):

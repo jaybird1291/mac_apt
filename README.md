@@ -95,7 +95,7 @@ FACETIME | Read available facetime call metadata
 FILESHARING | Read shared folder info
 FIREFOX | Read internet history from Mozilla Firefox browser
 FSEVENTS | Reads file system event logs (from .fseventsd)
-HELPERTOOLS | Detects persistence via embedded login helpers, privileged helpers (/Library/PrivilegedHelperTools/), and LaunchServices helper registrations
+HELPERS | Detects persistence via embedded login helpers, privileged helpers (/Library/PrivilegedHelperTools/), and LaunchServices helper registrations
 ICLOUD | Extract items stored in iCloud Drive
 IDEVICEBACKUPS | Reads and exports iPhone/iPad backup databases
 IDEVICEINFO | Reads and exports connected iDevice details
