@@ -11,9 +11,15 @@
    them to dropped persistence artifacts.
 
    IMPORTANT CONSTRAINT: Package scripts are transient - they execute and
-   disappear.  This plugin ONLY emits rows when actual script content is
-   available offline.  It does NOT fabricate visibility from package receipts
-   alone (InstallHistory.plist is already handled by the INSTALLHISTORY plugin).
+   disappear.  This plugin emits rows in two cases:
+     1. Script content is available offline (the common case).
+     2. A .pkg file exceeds MAX_PKG_PARSE_BYTES (256 MB): a presence-only row
+        with SubMechanism='pkg_too_large' is emitted so analysts know an
+        oversized package was observed, even though no script content could be
+        extracted.  Filter on SubMechanism != 'pkg_too_large' if you want
+        content-only rows.
+   It does NOT fabricate visibility from package receipts alone
+   (InstallHistory.plist is already handled by the INSTALLHISTORY plugin).
 
    Offline sources where package scripts may still be present:
      1. Flat .pkg files (xar archives) found in the evidence
@@ -258,7 +264,8 @@ def process_pkg_file(mac_info, pkg_path, user_name, uid, main_rows, detail_rows)
     if file_size > MAX_PKG_PARSE_BYTES:
         log.info('Skipping oversized .pkg ({} bytes): {}'.format(file_size, pkg_path))
         mac_info.ExportFile(pkg_path, __Plugin_Name, '', False)
-        # Emit a presence-only row so analysts know the package exists
+        # Presence-only row: no script content available. SubMechanism='pkg_too_large'
+        # allows downstream consumers to filter these out if they want content-only rows.
         main_rows.append(make_main_row(
             mechanism='Package Scripts',
             sub_mechanism='pkg_too_large',

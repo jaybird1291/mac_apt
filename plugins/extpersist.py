@@ -678,6 +678,11 @@ def _process_chromium_extension_id(mac_info, ext_id_dir, ext_id,
                 manifest = json.loads(raw)
             except Exception:
                 pass
+            finally:
+                try:
+                    f.close()
+                except Exception:
+                    pass
 
         name        = manifest.get('name', ext_id)
         permissions = manifest.get('permissions', [])

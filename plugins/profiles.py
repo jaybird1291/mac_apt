@@ -510,6 +510,7 @@ def _scan_dir_for_managed_prefs(mac_info, directory, user_name, uid,
             continue
         # Sub-directories under Managed Preferences are per-user
         if mac_info.IsValidFolderPath(item_path) and recurse_users:
+            processed.add(item_path)  # guard against symlink cycles / duplicate traversal
             sub_user = item['name']   # directory name is the username
             sub_uid  = ''
             for u in (mac_info.users if mac_info else []):

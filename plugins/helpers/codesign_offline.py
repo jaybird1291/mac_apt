@@ -101,6 +101,7 @@ class BundleInfo:
 
 def compute_sha256(mac_info, file_path):
     '''Return lowercase hex SHA-256 of the file, or empty string on error.'''
+    f = None
     try:
         f = mac_info.Open(file_path)
         if f is None:
@@ -117,6 +118,12 @@ def compute_sha256(mac_info, file_path):
     except Exception:
         log.debug('SHA-256 failed for {}'.format(file_path))
         return ''
+    finally:
+        if f is not None:
+            try:
+                f.close()
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +215,7 @@ def get_team_id_from_binary(mac_info, binary_path):
     '''Extract Team ID and adhoc flag from a Mach-O binary by scanning for a
     CodeDirectory. Reads only the last MAX_SCAN_BYTES of the file for performance.
     Returns (team_id, is_adhoc) tuple.'''
+    f = None
     try:
         file_size = mac_info.GetFileSize(binary_path)
         if not file_size:
@@ -230,6 +238,12 @@ def get_team_id_from_binary(mac_info, binary_path):
     except Exception:
         log.debug('Team ID binary scan failed for {}'.format(binary_path))
         return '', False
+    finally:
+        if f is not None:
+            try:
+                f.close()
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------

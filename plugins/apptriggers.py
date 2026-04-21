@@ -127,6 +127,11 @@ def process_startup_script(mac_info, file_path, user_name, uid,
                 ))
     except Exception:
         log.exception('Error reading {}'.format(file_path))
+    finally:
+        try:
+            f.close()
+        except Exception:
+            pass
 
 
 def process_iterm2_autolaunch(mac_info, home_dir, user_name, uid,

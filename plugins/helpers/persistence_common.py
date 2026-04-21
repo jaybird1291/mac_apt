@@ -38,10 +38,10 @@ def get_scope_from_path(path):
     "user" scope.  Root's home directories (/private/var/root/, /var/root/)
     are system scope — consistent with get_scope("root") == "system".
     Everything else (system libraries, /Library, /etc, /private, …) is
-    "system".
+    "system".  An empty/None path returns '' (unknown scope).
     '''
     if not path:
-        return 'user'
+        return ''
     if path.startswith('/Users/'):
         return 'user'
     return 'system'

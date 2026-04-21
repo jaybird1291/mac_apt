@@ -271,7 +271,9 @@ def _parse_fat(data, is_fat64=False):
 
     arches = []
     fat_arch_offset = 8
-    arch_entry_size = 32 if is_fat64 else 20
+    # fat_arch_64: {cputype(4), cpusubtype(4), offset(8), size(8), align(4)} = 28 bytes
+    # fat_arch:    {cputype(4), cpusubtype(4), offset(4), size(4), align(4)} = 20 bytes
+    arch_entry_size = 28 if is_fat64 else 20
     for i in range(nfat_arch):
         arch_entry_start = fat_arch_offset + i * arch_entry_size
         if arch_entry_start + arch_entry_size > len(data):

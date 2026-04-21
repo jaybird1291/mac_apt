@@ -111,7 +111,10 @@ class _StandaloneMacInfo:
         return items
 
     def Open(self, path):
-        return open(path, 'rb')
+        try:
+            return open(path, 'rb')
+        except OSError:
+            return None
 
     def ReadPlist(self, path):
         return CommonFunctions.ReadPlist(path)

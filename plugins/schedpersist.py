@@ -50,6 +50,18 @@ log = logging.getLogger('MAIN.' + __Plugin_Name)
 
 #---- Do not change the variable names in above section ----#
 
+
+def _scope_from_uid(uid_str):
+    '''Return scope based on numeric UID.
+    On macOS, regular user UIDs start at 500/501; anything below is a system
+    service account (daemon=1, nobody=4, _www=70, etc.).
+    Falls back to "system" for empty or non-numeric UID strings.
+    '''
+    try:
+        return 'system' if int(uid_str) < 500 else 'user'
+    except (ValueError, TypeError):
+        return 'system'
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -265,7 +277,7 @@ def process_at_job(mac_info, file_path, main_rows, detail_rows):
     main_rows.append(make_main_row(
         mechanism='Scheduled Persistence',
         sub_mechanism='at',
-        scope=get_scope(uid_str),
+        scope=_scope_from_uid(uid_str),
         uid=uid_str,
         artifact_path=file_path,
         artifact_type='at_spool',
